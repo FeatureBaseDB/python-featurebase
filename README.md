@@ -22,7 +22,7 @@ executing queries as shown in the following examples.
 
     # get result dicts from the endpoint query with SQL
     result = client.query("SELECT * FROM demo;")
-    if result.dict:
+    if result.ok and result.dict:
         print(result.dict)
 
     # query the endpoint with a batch of SQLs, running the SQLs synchronously
