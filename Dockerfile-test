@@ -1,0 +1,9 @@
+FROM python:3.8
+
+WORKDIR /python-featurebase
+
+COPY . .
+
+RUN pip install .
+
+CMD [ "python3", "-m", "unittest", "discover" ]

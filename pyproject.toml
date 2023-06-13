@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling", "build"]
+build-backend = "hatchling.build"
+
+[project]
+name = "featurebase"
+version = "0.0.1"
+authors = [
+  { name="Featurebase Developers", email="dev@featurebase.com", url="https://www.featurebase.com/" },
+]
+description = "A client library for Featurebase."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/featurebasedb/python-featurebase"
+"Bug Tracker" = "https://github.com/featurebasedb/python-featurebase/issues"

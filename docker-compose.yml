@@ -1,0 +1,27 @@
+version: '3'
+
+services:
+  featurebase:
+    image: registry.gitlab.com/molecula/featurebase/featurebase:linux-amd64-main
+    environment:
+      PILOSA_ADVERTISE: featurebase:10101
+    networks:
+      - pythonfeaturebase
+
+  python-test:
+    environment:
+      FEATUREBASE_HOSTPORT: featurebase:10101
+    build:
+      context: .
+      dockerfile: Dockerfile-test
+    networks:
+      - pythonfeaturebase
+    depends_on:
+      - featurebase
+
+volumes:
+    pilosa-data:
+
+networks:
+  pythonfeaturebase:
+
