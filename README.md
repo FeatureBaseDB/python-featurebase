@@ -16,9 +16,14 @@ executing queries as shown in the following examples.
     client = featurebase.client()
 
     # query the endpoint with SQL
-    result = client.query("SELECT * from demo;")
+    result = client.query("SELECT * FROM demo;")
     if result.ok: 
         print(result.data)
+
+    # get result dicts from the endpoint query with SQL
+    result = client.query("SELECT * FROM demo;")
+    if result.dict:
+        print(result.dict)
 
     # query the endpoint with a batch of SQLs, running the SQLs synchronously
     # Synchronous run best suited for executing DDL and DMLs that need to follow specific run order
