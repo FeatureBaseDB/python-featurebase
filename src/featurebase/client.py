@@ -3,6 +3,25 @@ import concurrent.futures
 import urllib.request
 import urllib.error
 
+# apply schema to list of dicts
+def apply_schema(list_of_lists, schema):
+    # build field names
+    field_names = []
+
+    # add them from the schema
+    for field in schema.get('fields'):
+        field_names.append(field.get('name'))
+
+    # build the dicts
+    result = []
+    for row in list_of_lists:
+        dict_row = {}
+        for i, val in enumerate(row):
+            dict_row[field_names[i]] = val
+        result.append(dict_row)
+    return result
+
+
 # client represents a http connection to the FeatureBase sql endpoint.
 class client:
     """Client represents a http connection to the FeatureBase sql endpoint.
@@ -144,11 +163,13 @@ class result:
         self.ok=False
         self.schema=None
         self.data=None
+        self.dict=None
         self.error=None
         self.warnings=None
         self.execution_time=0
         self.sql=sql
         self.ok=code==200 
+
         if self.ok:
             try:
                 result=json.loads(response)
@@ -160,6 +181,11 @@ class result:
                     self.data=result.get('data')
                     self.warnings=result.get('warnings')
                     self.execution_time=result.get('execution-time')
+
+                    # Apply schema to the data
+                    if self.schema and self.data:
+                        self.dict = apply_schema(self.data, self.schema)
+
             except json.JSONDecodeError as exc:
                 self.ok=False
                 self.error=error(500, 'JSON error. ' + str(response))
