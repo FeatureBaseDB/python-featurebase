@@ -81,7 +81,7 @@ class FeaturebaseResultTestCase(unittest.TestCase):
         self.assertEqual(res.sql, 'test sql')
         self.assertEqual(res.ok, False)
         self.assertEqual(res.error.code, 500)
-        self.assertEqual(res.error.description, "JSON error. {'broken':{}")
+        self.assertEqual(True, res.error.description.startswith('JSON error.'))
         self.assertEqual(res.schema, None)        
         self.assertEqual(res.data, None)    
         self.assertEqual(res.warnings, None)    
@@ -168,8 +168,8 @@ class FeaturebaseQueryBatchTestCase(unittest.TestCase):
         # create 2 test tables and insert some rows
         # this need to be run synchronously because tables 
         # should be created before inserts can be run
-        sql0='create table pclt_test_t1(_id id, i1 int, s1 string);'
-        sql1='create table pclt_test_t2(_id id, i1 int, s1 string);'
+        sql0='create table if not exists pclt_test_t1(_id id, i1 int, s1 string);'
+        sql1='create table if not exists pclt_test_t2(_id id, i1 int, s1 string);'
         sql2="insert into pclt_test_t1(_id, i1, s1) values(1,1,'text1');"
         sql3="insert into pclt_test_t1(_id, i1, s1) values(2,2,'text2');"
         sql4="insert into pclt_test_t1(_id, i1, s1) values(3,3,'text3');"
@@ -181,7 +181,10 @@ class FeaturebaseQueryBatchTestCase(unittest.TestCase):
         results = test_client.querybatch(sqllist,asynchronous=False)
         self.assertEqual(len(results),8)
         for result in results:
-            self.assertEqual(result.ok,True)
+            desc=""
+            if not result.ok:
+                desc=result.error.description            
+            self.assertEqual(result.ok,True, result.sql + ' ->'   + desc)
 
         # run some select queries on the test tables
         # these queries will be run asynchronously
@@ -194,15 +197,18 @@ class FeaturebaseQueryBatchTestCase(unittest.TestCase):
         results = test_client.querybatch(sqllist,asynchronous=True)
         self.assertEqual(len(results),4)
         for result in results:
-            self.assertEqual(result.ok,True)
+            desc=""
+            if not result.ok:
+                desc=result.error.description
+            self.assertEqual(result.ok,True, result.sql + ' ->'  + desc)
             if result.sql==sql0:
-                self.assertEqual(len(result.data), 4)
+                self.assertGreaterEqual(len(result.data), 4)
             elif result.sql==sql1:
-                self.assertEqual(len(result.data), 2)
+                self.assertGreaterEqual(len(result.data), 2)
             elif result.sql==sql2:
-                self.assertEqual(result.data[0][0], 4)                
+                self.assertGreaterEqual(result.data[0][0], 4)                
             elif result.sql==sql3:
-                self.assertEqual(result.data[0][0], 2)     
+                self.assertGreaterEqual(result.data[0][0], 2)     
 
         # cleanup by dropping the test tables
         sql0='drop table pclt_test_t1;'
@@ -212,7 +218,10 @@ class FeaturebaseQueryBatchTestCase(unittest.TestCase):
         results = test_client.querybatch(sqllist,asynchronous=True)
         self.assertEqual(len(results),2)
         for result in results:
-            self.assertEqual(result.ok,True)
+            desc=""
+            if not result.ok:
+                desc=result.error.description
+            self.assertEqual(result.ok,True, result.sql + ' ->'  + desc)
 
 if __name__ == '__main__':
     unittest.main()

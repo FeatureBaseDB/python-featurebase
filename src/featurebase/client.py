@@ -149,25 +149,28 @@ class result:
         self.execution_time=0
         self.sql=sql
         self.ok=code==200 
+        self.rows_affected=0
         if self.ok:
             try:
                 result=json.loads(response)
                 if 'error' in result.keys():
                     self.ok=False
-                    self.error=error(500, 'SQL error. ' + result['error'])
+                    self.error=error(500, 'SQL error. ' + result['error'], response)
                 else:
                     self.schema=result.get('schema')
                     self.data=result.get('data')
                     self.warnings=result.get('warnings')
                     self.execution_time=result.get('execution-time')
+                    self.rows_affected=result.get('rows-affected')
             except json.JSONDecodeError as exc:
                 self.ok=False
-                self.error=error(500, 'JSON error. ' + str(response))
+                self.error=error(500, 'JSON error. ' + str(exc), response)
         else:
-            self.error=error(code, 'HTTP error. ' + reason)
+            self.error=error(code, 'HTTP error. ' + reason, response)
 
 # simple data object representing request error details
 class error:
-    def __init__(self, code, description):
+    def __init__(self, code, description, response_raw=None):
         self.code=code
         self.description=description
+        self.response_raw=response_raw
