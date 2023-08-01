@@ -2,7 +2,7 @@ import os
 import unittest
 import calendar
 import time
-from featurebase import client, result, error
+from featurebase import client, result
 
 class FeaturebaseClientTestCase(unittest.TestCase):
 
@@ -48,61 +48,86 @@ class FeaturebaseClientTestCase(unittest.TestCase):
     # test client for post error scenarios
     def testPostExceptions(self):
         # domain exists but no /sql path defined
-        test_client = client(hostport='featurebase.com:2020', timeout=5)     
-        result=test_client._post('This is test data, has no meaning when posted.')
-        self.assertEqual(result.ok,False)
+        result=None
+        exec=None        
+        test_client = client(hostport='featurebase.com:2020', timeout=5)  
+        try:   
+            result=test_client._post('This is test data, has no meaning when posted.')
+        except Exception as ex:
+            exec=ex
+        self.assertIsNotNone(exec)    
+        self.assertIsNone(result)
         # unknown domain
+        result=None
+        exec=None        
         test_client = client(hostport='notarealhost.com', timeout=5)     
-        result=test_client._post('This is test data, has no meaning when posted.')
-        self.assertEqual(result.ok,False)   
+        try:
+            result=test_client._post('This is test data, has no meaning when posted.')
+        except Exception as ex:
+            exec=ex
+        self.assertIsNotNone(exec)
+        self.assertIsNone(result)
         # bad CA attributes
+        result=None
+        exec=None
         test_client = client(timeout=5, cafile='/nonexistingfile.pem')     
-        result=test_client._post('This is test data, has no meaning when posted.')
-        self.assertEqual(result.ok,False)             
+        try:
+            result=test_client._post('This is test data, has no meaning when posted.')
+        except Exception as ex:
+            exec=ex
+        self.assertIsNotNone(exec)
+        self.assertIsNone(result)          
 
 # test result data construction based on http response data
 class FeaturebaseResultTestCase(unittest.TestCase):
 
     # test general HTTP failure
     def testGeneralFailure(self):          
-        res=result(sql='test sql', response='', code=500, reason='test reason')
+        res=result(sql='test sql', response='test raw response', code=500, exec=Exception('test exeception'))
         self.assertEqual(res.sql, 'test sql')
         self.assertEqual(res.ok, False)
-        self.assertEqual(res.error.code, 500)
-        self.assertEqual(res.error.description, 'HTTP error. test reason')
+        self.assertEqual(res.error, None)
         self.assertEqual(res.schema, None)
         self.assertEqual(res.data, None)    
         self.assertEqual(res.warnings, None)    
         self.assertEqual(res.execution_time, 0)         
+        self.assertEqual(res.rows_affected, 0)         
+        self.assertEqual(res.raw_response, 'test raw response')        
+        self.assertEqual(str(res.exec), str(Exception('test exeception'))) 
     
     # test response with a bad JSON that fails to deserialize
     def testJSONParseFailure(self):          
-        res=result(sql='test sql', response="{'broken':{}", code=200, reason='Ok')
+        res=result(sql='test sql', response="{'broken':{}", code=200, exec=None)
         self.assertEqual(res.sql, 'test sql')
         self.assertEqual(res.ok, False)
-        self.assertEqual(res.error.code, 500)
-        self.assertEqual(True, res.error.description.startswith('JSON error.'))
+        self.assertEqual(res.error, str(res.exec))
         self.assertEqual(res.schema, None)        
         self.assertEqual(res.data, None)    
         self.assertEqual(res.warnings, None)    
         self.assertEqual(res.execution_time, 0)             
+        self.assertEqual(res.rows_affected, 0)         
+        self.assertEqual(res.raw_response, "{'broken':{}")   
+        self.assertIsNotNone(res.exec)     
 
     # test response with SQL error
     def testSQLError(self):          
-        res=result(sql='test sql', response=b'{"schema":{},"data":{}, "warnings":{}, "execution-time":10,"error":"test error"}', code=200, reason='Ok')
+        resp=b'{"schema":{},"data":{}, "warnings":{}, "execution-time":10,"error":"test sql error"}'
+        res=result(sql='test sql', response=resp, code=200, exec=None)
         self.assertEqual(res.sql, 'test sql')
         self.assertEqual(res.ok, False)
-        self.assertEqual(res.error.code, 500)
-        self.assertEqual(res.error.description, "SQL error. test error")
+        self.assertEqual(res.error, 'test sql error' )
         self.assertEqual(res.schema, None)     
         self.assertEqual(res.data, None)    
         self.assertEqual(res.warnings, None)    
-        self.assertEqual(res.execution_time, 0)                    
+        self.assertEqual(res.execution_time, 0)    
+        self.assertEqual(res.rows_affected, 0)     
+        self.assertEqual(res.raw_response, resp)      
+        self.assertIsNone(res.exec)                 
 
     # test successful response
     def testSuccess(self):
         kv={'k1':'v1'}
-        res=result(sql='test sql', response=b'{"schema":{"k1":"v1"},"data":{"k1":"v1"}, "warnings":{"k1":"v1"}, "execution-time":10}', code=200, reason='Ok')
+        res=result(sql='test sql', response=b'{"schema":{"k1":"v1"},"data":{"k1":"v1"}, "warnings":{"k1":"v1"}, "execution-time":10}', code=200, exec=None)
         self.assertEqual(res.sql, 'test sql')
         self.assertEqual(res.ok, True)
         self.assertEqual(res.error, None)
@@ -111,13 +136,6 @@ class FeaturebaseResultTestCase(unittest.TestCase):
         self.assertDictEqual(res.warnings, kv)    
         self.assertEqual(res.execution_time, 10)    
 
-# test error data object
-class FeaturebaseErrorTestCase(unittest.TestCase):
-    def testErrorObject(self):          
-        err=error(code=1,description='test description')
-        self.assertEqual(err.code, 1)
-        self.assertEqual(err.description, 'test description')
-
 # test query interface
 class FeaturebaseQueryTestCase(unittest.TestCase):
     # test SQL for error
@@ -125,8 +143,7 @@ class FeaturebaseQueryTestCase(unittest.TestCase):
         test_client=client(hostport=os.getenv('FEATUREBASE_HOSTPORT', 'localhost:10101'))
         result=test_client.query("select non_existing_column from non_existing_table;")
         self.assertEqual(result.ok,False)
-        self.assertEqual(result.error.code,500)
-        self.assertEqual(True,result.error.description.startswith('SQL error.'))
+        self.assertIsNotNone(result.error)
     
     # test SQL for success
     def testQuerySuccess(self):
@@ -163,7 +180,6 @@ class FeaturebaseQueryBatchTestCase(unittest.TestCase):
     
     # test SQL batch Asynchronous
     def testQueryBatchAsync(self):    
-        test_client=client(hostport=os.getenv('FEATUREBASE_HOSTPORT', 'localhost:10101'))
 
         # create 2 test tables and insert some rows
         # this need to be run synchronously because tables 
@@ -177,13 +193,15 @@ class FeaturebaseQueryBatchTestCase(unittest.TestCase):
         sql6="insert into pclt_test_t2(_id, i1, s1) values(1,1,'text1');"
         sql7="insert into pclt_test_t2(_id, i1, s1) values(2,2,'text2');"
         sqllist=[sql0,sql1, sql2, sql3, sql4, sql5, sql6, sql7]
-        
+
+        test_client=client(hostport=os.getenv('FEATUREBASE_HOSTPORT', 'localhost:10101'))        
         results = test_client.querybatch(sqllist,asynchronous=False)
+        
         self.assertEqual(len(results),8)
         for result in results:
             desc=""
             if not result.ok:
-                desc=result.error.description            
+                desc=result.error           
             self.assertEqual(result.ok,True, result.sql + ' ->'   + desc)
 
         # run some select queries on the test tables
@@ -199,7 +217,7 @@ class FeaturebaseQueryBatchTestCase(unittest.TestCase):
         for result in results:
             desc=""
             if not result.ok:
-                desc=result.error.description
+                desc=result.error
             self.assertEqual(result.ok,True, result.sql + ' ->'  + desc)
             if result.sql==sql0:
                 self.assertGreaterEqual(len(result.data), 4)
@@ -210,7 +228,16 @@ class FeaturebaseQueryBatchTestCase(unittest.TestCase):
             elif result.sql==sql3:
                 self.assertGreaterEqual(result.data[0][0], 2)     
 
-        # cleanup by dropping the test tables
+        bad_client=client(hostport='bad-address')
+        results=None
+        exec=None
+        try:
+            results = bad_client.querybatch(sqllist,asynchronous=True)
+        except Exception as ex:
+            exec=ex
+        self.assertIsNotNone(exec) 
+        self.assertIsNone(results)
+        # cleanup by droping the test tables
         sql0='drop table pclt_test_t1;'
         sql1='drop table pclt_test_t2;'
         sqllist=[sql0,sql1]
@@ -220,7 +247,7 @@ class FeaturebaseQueryBatchTestCase(unittest.TestCase):
         for result in results:
             desc=""
             if not result.ok:
-                desc=result.error.description
+                desc=result.error
             self.assertEqual(result.ok,True, result.sql + ' ->'  + desc)
 
 if __name__ == '__main__':

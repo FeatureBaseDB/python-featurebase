@@ -41,7 +41,7 @@ def run(batchSize: int):
     # create demo table 
     result=client.query(sql="CREATE TABLE demo_upload(_id ID, keycol INT, val1 STRING, val2 STRING)")
     if not result.ok:
-        print(result.error.description)
+        print(result.error)
     # insert batchSize rows per insert for 1000 times
     n=int(1000000/batchSize)
     l=1

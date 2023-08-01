@@ -60,19 +60,19 @@ class client:
     # helper method executes the http post request and returns a callable future 
     def _post(self, sql):
         data = bytes(sql, 'utf-8')
+        # use context manager to ensure connection is promptly closed and released 
+        with urllib.request.urlopen(self._newrequest(), data=data, timeout=self.timeout, cafile=self.cafile, capath=self.capath) as conn:
+            response=conn.read()    
+        return result(sql=sql, response=response, code=conn.code)
+
+    # helper method executes the http post request and returns a callable future and handles exception
+    def _postforasync(self, sql):
         try:
-            # use context manager to ensure connection is promptly closed and released 
-            with urllib.request.urlopen(self._newrequest(), data=data, timeout=self.timeout, cafile=self.cafile, capath=self.capath) as conn:
-                response=conn.read()
-        # handle exceptions in a decreasing specificity order 
-        except urllib.error.HTTPError as exc:
-            return result(sql=sql, response={}, code=exc.code, reason=exc.reason)
-        except urllib.error.URLError as exc:
-            return result(sql=sql, response={}, code=500, reason=str(exc.reason))        
-        except Exception as exc:
-            return result(sql=sql, response={}, code=500, reason=str(exc))                
-        else:
-            return result(sql=sql, response=response, code=conn.code, reason=conn.reason)
+            response=self._post(sql)
+        except Exception as exec:
+            exec.add_note(sql)
+            return result(sql=sql, response=response, code=500, exec=exec) 
+        return response
 
     # helper method accepts a list of sql queries and executes them
     # asynchronously and returns the results as a list
@@ -81,15 +81,9 @@ class client:
         # use context manger to ensure threads are cleaned up promptly
         with concurrent.futures.ThreadPoolExecutor() as executor:
             # Start the query execution and mark each future with its sql
-            future_to_sql = {executor.submit(self._post, sql): sql for sql in sqllist}
+            future_to_sql = {executor.submit(self._postforasync, sql): sql for sql in sqllist}
             for future in concurrent.futures.as_completed(future_to_sql, self.timeout):
-                sql = future_to_sql[future]
-                try:
-                    result =future.result()
-                except Exception as exc:
-                    results.append(result(sql=sql,response=None,code=500, reason=str(exc)))
-                else:
-                    results.append(result)
+                results.append(future.result())
         return results
 
     # public method accepts a sql query creates a new request object pointing to
@@ -114,7 +108,13 @@ class client:
         stoponerror -- a flag to indicate what to do when a SQL error happens. Passing True will stop executing remaining SQLs in the input list after the errored SQL item. This parameter is ignored when asynchronous=True (default False)"""        
         results =[]
         if asynchronous:
-            results=self._batchasync(sqllist)            
+            results=self._batchasync(sqllist)
+            excs = []
+            for result in results:
+                if not result.ok:
+                    excs.append(result.exec)
+            if len(excs)>0:
+                raise ExceptionGroup('Batch exception(s):', excs)
         else:
             for sql in sqllist:
                 result=self._post(sql)
@@ -128,8 +128,8 @@ class client:
 
 # simple data object representing query result returned by the sql endpoint for
 # successful requests, data returned by the service will be populated in the
-# data, schema attributes along with any warnings for failed requests, error
-# info will be populated in the error attribute
+# data, schema attributes along with any warnings, for failed requests error and 
+# exception info will be populated in the respective attributes
 class result:
     """Result is a simple data object representing results of a SQL query.
 
@@ -137,10 +137,14 @@ class result:
     ok -- boolean indicating query execution status
     schema -- field definitions for the result data
     data -- data rows returned by the server
-    error -- error information with a code and description
+    error -- SQL error information
     warnings -- warning information returned by the server
-    execution_time -- amount of time (microseconds) it took for the server to execute the SQL"""
-    def __init__(self, sql, response, code, reason):
+    execution_time -- amount of time (microseconds) it took for the server to execute the SQL
+    rows_affected -- number of rows affected by the SQL statement
+    exec -- exception captured during asynchronous execution
+    raw_response -- original request response
+    """
+    def __init__(self, sql, response, code, exec=None):
         self.ok=False
         self.schema=None
         self.data=None
@@ -150,27 +154,23 @@ class result:
         self.sql=sql
         self.ok=code==200 
         self.rows_affected=0
+        self.exec=None
+        self.raw_response=response
         if self.ok:
             try:
                 result=json.loads(response)
                 if 'error' in result.keys():
                     self.ok=False
-                    self.error=error(500, 'SQL error. ' + result['error'], response)
+                    self.error=result['error']
                 else:
                     self.schema=result.get('schema')
                     self.data=result.get('data')
                     self.warnings=result.get('warnings')
                     self.execution_time=result.get('execution-time')
                     self.rows_affected=result.get('rows-affected')
-            except json.JSONDecodeError as exc:
+            except json.JSONDecodeError as exec:
                 self.ok=False
-                self.error=error(500, 'JSON error. ' + str(exc), response)
+                self.error=str(exec)
+                self.exec=exec
         else:
-            self.error=error(code, 'HTTP error. ' + reason, response)
-
-# simple data object representing request error details
-class error:
-    def __init__(self, code, description, response_raw=None):
-        self.code=code
-        self.description=description
-        self.response_raw=response_raw
+            self.exec=exec
