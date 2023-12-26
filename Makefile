@@ -2,21 +2,22 @@
 
 VERSION := $(shell git describe --tags 2> /dev/null || echo unknown)
 PYTHON=python3
+PIP=pip3
 
 default: build install
 
 build:
-	pip install -r requirements.txt 
+	$(PIP) install -r requirements.txt 
 	$(PYTHON) -m build --wheel
 
 install:
-	pip install ./dist/*.whl --force-reinstall
+	$(PIP) install ./dist/*.whl --force-reinstall
 
 test:
 	$(PYTHON) -m unittest discover 
 
 release:
-	pip install -r requirements.txt
+	$(PIP) install -r requirements.txt
 	$(PYTHON) -m build --wheel -o ./build/	
 
 docker:
