@@ -1,2 +1,3 @@
 .vscode/settings.json
 dist/*.whl
+tests/__pycache__

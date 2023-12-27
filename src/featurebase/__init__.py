@@ -1,1 +1,1 @@
-from .client import client, result
+from .client import client, result, results
