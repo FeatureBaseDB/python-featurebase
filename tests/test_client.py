@@ -1,8 +1,11 @@
+import json
 import os
 import unittest
 import calendar
 import time
 from featurebase import client, result
+
+client_hostport = os.getenv("FEATUREBASE_HOSTPORT", "localhost:10101")
 
 
 class FeaturebaseClientTestCase(unittest.TestCase):
@@ -104,51 +107,23 @@ class FeaturebaseClientTestCase(unittest.TestCase):
 class FeaturebaseResultTestCase(unittest.TestCase):
     # test general HTTP failure
     def testGeneralFailure(self):
-        res = result(
-            sql="test sql",
-            response="test raw response",
-            code=500,
-            exec=Exception("test exeception"),
-        )
-        self.assertEqual(res.sql, "test sql")
-        self.assertEqual(res.ok, False)
-        self.assertEqual(res.error, None)
-        self.assertEqual(res.schema, None)
-        self.assertEqual(res.data, None)
-        self.assertEqual(res.warnings, None)
-        self.assertEqual(res.execution_time, 0)
-        self.assertEqual(res.rows_affected, 0)
-        self.assertEqual(res.raw_response, "test raw response")
-        self.assertEqual(str(res.exec), str(Exception("test exeception")))
+        with self.assertRaises(RuntimeError):
+            res = result(
+                sql="test sql",
+                response="test raw response",
+                code=500,
+            )
 
     # test response with a bad JSON that fails to deserialize
     def testJSONParseFailure(self):
-        res = result(sql="test sql", response="{'broken':{}", code=200, exec=None)
-        self.assertEqual(res.sql, "test sql")
-        self.assertEqual(res.ok, False)
-        self.assertEqual(res.error, str(res.exec))
-        self.assertEqual(res.schema, None)
-        self.assertEqual(res.data, None)
-        self.assertEqual(res.warnings, None)
-        self.assertEqual(res.execution_time, 0)
-        self.assertEqual(res.rows_affected, 0)
-        self.assertEqual(res.raw_response, "{'broken':{}")
-        self.assertIsNotNone(res.exec)
+        with self.assertRaises(json.JSONDecodeError):
+            res = result(sql="test sql", response="{'broken':{}", code=200)
 
     # test response with SQL error
     def testSQLError(self):
-        resp = b'{"schema":{},"data":{}, "warnings":{}, "execution-time":10,"error":"test sql error"}'
-        res = result(sql="test sql", response=resp, code=200, exec=None)
-        self.assertEqual(res.sql, "test sql")
-        self.assertEqual(res.ok, False)
-        self.assertEqual(res.error, "test sql error")
-        self.assertEqual(res.schema, None)
-        self.assertEqual(res.data, None)
-        self.assertEqual(res.warnings, None)
-        self.assertEqual(res.execution_time, 0)
-        self.assertEqual(res.rows_affected, 0)
-        self.assertEqual(res.raw_response, resp)
-        self.assertIsNone(res.exec)
+        with self.assertRaises(RuntimeError):
+            resp = b'{"schema":{},"data":{}, "warnings":{}, "execution-time":10,"error":"test sql error"}'
+            res = result(sql="test sql", response=resp, code=200)
 
     # test successful response
     def testSuccess(self):
@@ -157,11 +132,8 @@ class FeaturebaseResultTestCase(unittest.TestCase):
             sql="test sql",
             response=b'{"schema":{"k1":"v1"},"data":{"k1":"v1"}, "warnings":{"k1":"v1"}, "execution-time":10}',
             code=200,
-            exec=None,
         )
         self.assertEqual(res.sql, "test sql")
-        self.assertEqual(res.ok, True)
-        self.assertEqual(res.error, None)
         self.assertDictEqual(res.schema, kv)
         self.assertDictEqual(res.data, kv)
         self.assertDictEqual(res.warnings, kv)
@@ -172,22 +144,16 @@ class FeaturebaseResultTestCase(unittest.TestCase):
 class FeaturebaseQueryTestCase(unittest.TestCase):
     # test SQL for error
     def testQueryError(self):
-        test_client = client(
-            hostport=os.getenv("FEATUREBASE_HOSTPORT", "localhost:10101")
-        )
-        result = test_client.query(
-            "select non_existing_column from non_existing_table;"
-        )
-        self.assertEqual(result.ok, False)
-        self.assertIsNotNone(result.error)
+        test_client = client(client_hostport)
+        with self.assertRaises(RuntimeError):
+            result = test_client.query(
+                "select non_existing_column from non_existing_table;"
+            )
 
     # test SQL for success
     def testQuerySuccess(self):
-        test_client = client(
-            hostport=os.getenv("FEATUREBASE_HOSTPORT", "localhost:10101")
-        )
+        test_client = client(client_hostport)
         result = test_client.query("select toTimeStamp(0);")
-        self.assertEqual(result.ok, True)
         self.assertEqual(result.data[0][0], "1970-01-01T00:00:00Z")
 
 
@@ -195,79 +161,62 @@ class FeaturebaseQueryTestCase(unittest.TestCase):
 class FeaturebaseQueryBatchTestCase(unittest.TestCase):
     # test SQL batch synchronous
     def testQueryBatchSync(self):
-        test_client = client(
-            hostport=os.getenv("FEATUREBASE_HOSTPORT", "localhost:10101")
-        )
+        test_client = client(client_hostport)
         # create a table and insert rows and query the rows before dropping the table.
         # all these SQLs to succeed they need to be run in a specific order
         # so they are run synchronously
         tablename = "pclt_" + str(calendar.timegm(time.gmtime()))
-        sql0 = "select * from " + tablename + ";"
-        sql1 = "create table " + tablename + " (_id id, i1 int, s1 string) ;"
-        sql2 = "insert into " + tablename + "(_id,i1,s1) values(1,1,'text1');"
-        sql3 = "insert into " + tablename + "(_id,i1,s1) values(2,2,'text2');"
-        sql4 = "select count(*) from " + tablename + ";"
-        sql5 = "drop table " + tablename + ";"
-        sqllist = [sql0, sql1, sql2, sql3, sql4, sql5]
-        results = test_client.querybatch(sqllist, asynchronous=False)
-        self.assertEqual(len(results), 6)
-        for result in results:
-            # first query should fail with a SQL error, because the table doesn't exist yet.
-            if result.sql == sql0:
-                self.assertEqual(result.ok, False)
-            else:
-                self.assertEqual(result.ok, True)
+        sqllist = [
+            "select * from {};",
+            "create table {} (_id id, i1 int, s1 string) ;",
+            "insert into {}(_id,i1,s1) values(1,1,'text1');",
+            "insert into {}(_id,i1,s1) values(2,2,'text2');",
+            "select count(*) from {};",
+            "drop table {};",
+        ]
+        sqllist = [sql.format(tablename) for sql in sqllist]
+        # if you try to run the full list, you should get an exception
+        with self.assertRaises(RuntimeError):
+            results = test_client.querybatch(sqllist)
+        # if you skip the first one, you should get five back
+        results = test_client.querybatch(sqllist[1:])
+        self.assertEqual(len(results), 5)
 
     # test SQL batch Asynchronous
     def testQueryBatchAsync(self):
         # create 2 test tables and insert some rows
         # this need to be run synchronously because tables
         # should be created before inserts can be run
-        sql0 = "create table if not exists pclt_test_t1(_id id, i1 int, s1 string);"
-        sql1 = "create table if not exists pclt_test_t2(_id id, i1 int, s1 string);"
-        sql2 = "insert into pclt_test_t1(_id, i1, s1) values(1,1,'text1');"
-        sql3 = "insert into pclt_test_t1(_id, i1, s1) values(2,2,'text2');"
-        sql4 = "insert into pclt_test_t1(_id, i1, s1) values(3,3,'text3');"
-        sql5 = "insert into pclt_test_t1(_id, i1, s1) values(4,4,'text4');"
-        sql6 = "insert into pclt_test_t2(_id, i1, s1) values(1,1,'text1');"
-        sql7 = "insert into pclt_test_t2(_id, i1, s1) values(2,2,'text2');"
-        sqllist = [sql0, sql1, sql2, sql3, sql4, sql5, sql6, sql7]
+        sqllist = [
+            "create table if not exists pclt_test_t1(_id id, i1 int, s1 string);",
+            "create table if not exists pclt_test_t2(_id id, i1 int, s1 string);",
+            "insert into pclt_test_t1(_id, i1, s1) values(1,1,'text1');",
+            "insert into pclt_test_t1(_id, i1, s1) values(2,2,'text2');",
+            "insert into pclt_test_t1(_id, i1, s1) values(3,3,'text3');",
+            "insert into pclt_test_t1(_id, i1, s1) values(4,4,'text4');",
+            "insert into pclt_test_t2(_id, i1, s1) values(1,1,'text1');",
+            "insert into pclt_test_t2(_id, i1, s1) values(2,2,'text2');",
+        ]
 
-        test_client = client(
-            hostport=os.getenv("FEATUREBASE_HOSTPORT", "localhost:10101")
-        )
+        test_client = client(client_hostport)
         results = test_client.querybatch(sqllist, asynchronous=False)
 
         self.assertEqual(len(results), 8)
-        for result in results:
-            desc = ""
-            if not result.ok:
-                desc = result.error
-            self.assertEqual(result.ok, True, result.sql + " ->" + desc)
 
         # run some select queries on the test tables
         # these queries will be run asynchronously
-        sql0 = "select * from pclt_test_t1;"
-        sql1 = "select * from pclt_test_t2;"
-        sql2 = "select count(*) from pclt_test_t1;"
-        sql3 = "select count(*) from pclt_test_t2;"
+        sqlexpecting = {
+            "select * from pclt_test_t1;": lambda x: len(x.data) == 4,
+            "select * from pclt_test_t2;": lambda x: len(x.data) == 2,
+            "select count(*) from pclt_test_t1;": lambda x: x.data[0][0] == 4,
+            "select count(*) from pclt_test_t2;": lambda x: x.data[0][0] == 2,
+        }
+        sqllist = sqlexpecting.keys()
 
-        sqllist = [sql0, sql1, sql2, sql3]
         results = test_client.querybatch(sqllist, asynchronous=True)
         self.assertEqual(len(results), 4)
         for result in results:
-            desc = ""
-            if not result.ok:
-                desc = result.error
-            self.assertEqual(result.ok, True, result.sql + " ->" + desc)
-            if result.sql == sql0:
-                self.assertGreaterEqual(len(result.data), 4)
-            elif result.sql == sql1:
-                self.assertGreaterEqual(len(result.data), 2)
-            elif result.sql == sql2:
-                self.assertGreaterEqual(result.data[0][0], 4)
-            elif result.sql == sql3:
-                self.assertGreaterEqual(result.data[0][0], 2)
+            self.assertEqual(sqlexpecting[result.sql](result), True)
 
         bad_client = client(hostport="bad-address")
         results = None
@@ -279,17 +228,13 @@ class FeaturebaseQueryBatchTestCase(unittest.TestCase):
         self.assertIsNotNone(exec)
         self.assertIsNone(results)
         # cleanup by droping the test tables
-        sql0 = "drop table pclt_test_t1;"
-        sql1 = "drop table pclt_test_t2;"
-        sqllist = [sql0, sql1]
+        sqllist = [
+            "drop table pclt_test_t1;",
+            "drop table pclt_test_t2;",
+        ]
 
         results = test_client.querybatch(sqllist, asynchronous=True)
         self.assertEqual(len(results), 2)
-        for result in results:
-            desc = ""
-            if not result.ok:
-                desc = result.error
-            self.assertEqual(result.ok, True, result.sql + " ->" + desc)
 
 
 if __name__ == "__main__":

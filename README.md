@@ -20,11 +20,12 @@ executing queries as shown in the following examples:
     client = featurebase.client()
 
     # query the endpoint with SQL
-    result = client.query("SELECT * from demo;")
-    if result.ok: 
+    try:
+        result = client.query("SELECT * from demo;")
         print(result.data)
-    else:
-        print(result.error)
+    except Exception as e:
+        # SQL errors and connection errors both come back as exceptions
+        print(e)
 
     # query the endpoint with a batch of SQLs, running the SQLs synchronously
     # Synchronous run best suited for executing DDL and DMLs that need to follow specific run order
@@ -36,10 +37,7 @@ executing queries as shown in the following examples:
     sqllist.append("select * from demo1;")
     results = client.querybatch(sqllist, stoponerror=True)
     for result in results:
-        if result.ok:
-            print(result.data)
-        else:
-            print(result.error)
+        print(result.data)
         
     # query the endpoint with a batch of SQLs, running the SQLs Asynchronously
     # Asynchronous run best suited for running SELECT queries that can be run concurrently.
@@ -49,7 +47,4 @@ executing queries as shown in the following examples:
     sqllist.append("SELECT max(i1) from demo1;")
     results = client.querybatch(sqllist, asynchronous=True)
     for result in results:
-        if result.ok:
-            print(result.data)
-        else:
-            print(result.error)
+        print(result.data)

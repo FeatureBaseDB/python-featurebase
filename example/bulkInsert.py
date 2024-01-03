@@ -33,7 +33,7 @@ def upload_data_bulk(key_from: int, count: int):
     stime = time.time()
     result = client.query(sql=bulk_insert_sql)
     etime = time.time()
-    if result.ok:
+    try:
         print(
             "inserted "
             + str(result.rows_affected)
@@ -41,22 +41,22 @@ def upload_data_bulk(key_from: int, count: int):
             + str(etime - stime)
             + " seconds"
         )
-    else:
-        print(result.error)
-    return result.ok
+    except Exception as e:
+        print(e)
+        return False
+    return True
 
 
 # create a demo table and load million rows
 def run(batch_size: int):
     # create demo table
-    result = client.query(sql="DROP TABLE IF EXISTS demo_upload")
-    if not result.ok:
-        print(result.error)
-    result = client.query(
-        sql="CREATE TABLE demo_upload(_id ID, keycol INT, val1 STRING, val2 STRING)"
-    )
-    if not result.ok:
-        print(result.error)
+    try:
+        client.query(sql="DROP TABLE IF EXISTS demo_upload")
+        client.query(
+            sql="CREATE TABLE demo_upload(_id ID, keycol INT, val1 STRING, val2 STRING)"
+        )
+    except Exception as e:
+        print(e)
     # insert batch_size rows per insert
     # (will not upload the full million if batch_size does not evenly divide 1M)
     n = int(1000000 / batch_size)
