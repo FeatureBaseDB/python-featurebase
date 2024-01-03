@@ -1,5 +1,6 @@
 import json
 import concurrent.futures
+import ssl
 import urllib.request
 import urllib.error
 
@@ -39,8 +40,6 @@ class client:
         self.hostport = hostport
         self.database = database
         self.apikey = apikey
-        self.cafile = cafile
-        self.capath = capath
         self.timeout = timeout
         self.origin = origin
         if hostport is None:
@@ -53,12 +52,23 @@ class client:
             raise ValueError("API key, if set, must not be empty string")
         if database is not None and database == "":
             raise ValueError("database ID, if set, must not be empty string")
+        scheme = "http"
+        if cafile or capath or apikey:
+            scheme = "https"
+            # force https
+            self.sslContext = ssl.create_default_context(cafile=cafile, capath=capath)
+        else:
+            self.sslContext = None
+        path = "/sql"
+        if self.database:
+            path = "/databases/{}/query/sql".format(self.database)
+        self.url = "{}://{}{}".format(scheme, self.hostport, path)
 
     # private helper to create a new request/session object intialized with tls
     # attributes if any provided adds header entries as expected by the sql
     # endpoint
     def _newrequest(self):
-        request = urllib.request.Request(self._geturl(), method="POST")
+        request = urllib.request.Request(self.url, method="POST")
         if self.origin != None:
             request.origin_req_host = self.origin
         return self._addheaders(request)
@@ -71,20 +81,6 @@ class client:
             request.add_header("X-API-Key", self.apikey)
         return request
 
-    # private helper to build url for the request it determines http or https
-    # default url points to sql endpoint, database is added to the path if
-    # provided optionally it can point to other paths.
-    def _geturl(self, path=None):
-        scheme = "http"
-        if self.cafile != None or self.capath != None or self.apikey != None:
-            scheme = "https"
-        if path == None:
-            if self.database != None:
-                path = "/databases/" + self.database + "/query/sql"
-            else:
-                path = "/sql"
-        return scheme + "://" + self.hostport + path
-
     # helper method executes the http post request and returns a callable future
     def _post(self, sql):
         data = bytes(sql, "utf-8")
@@ -93,8 +89,7 @@ class client:
             self._newrequest(),
             data=data,
             timeout=self.timeout,
-            cafile=self.cafile,
-            capath=self.capath,
+            context=self.sslContext,
         ) as conn:
             response = conn.read()
         return result(sql=sql, response=response, code=conn.code)

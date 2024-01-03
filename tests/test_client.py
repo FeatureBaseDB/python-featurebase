@@ -16,38 +16,26 @@ class FeaturebaseClientTestCase(unittest.TestCase):
         self.assertEqual(default_client.database, None)
         self.assertEqual(default_client.apikey, None)
         self.assertEqual(default_client.origin, None)
-        self.assertEqual(default_client.capath, None)
-        self.assertEqual(default_client.cafile, None)
+        self.assertEqual(default_client.url, "http://localhost:10101/sql")
 
     # test URL generation schemes
     def testURL(self):
         # default URL
         test_client = client(hostport="featurebase.com:2020")
-        self.assertEqual(test_client._geturl(), "http://featurebase.com:2020/sql")
+        self.assertEqual(test_client.url, "http://featurebase.com:2020/sql")
         # URL for context database
         test_client = client(hostport="featurebase.com:2020", database="db-1")
         self.assertEqual(
-            test_client._geturl(),
+            test_client.url,
             "http://featurebase.com:2020/databases/db-1/query/sql",
         )
         # https when CA attributes are defined
         test_client = client(
-            hostport="featurebase.com:2020", database="db-1", capath="./pem/"
+            hostport="featurebase.com:2020", database="db-1", capath="."
         )
         self.assertEqual(
-            test_client._geturl(),
+            test_client.url,
             "https://featurebase.com:2020/databases/db-1/query/sql",
-        )
-        test_client = client(
-            hostport="featurebase.com:2020", database="db-1", cafile="./pem"
-        )
-        self.assertEqual(
-            test_client._geturl(),
-            "https://featurebase.com:2020/databases/db-1/query/sql",
-        )
-        # url for custom path
-        self.assertEqual(
-            test_client._geturl("/test"), "https://featurebase.com:2020/test"
         )
 
     # test request for method, origin and headers
@@ -94,8 +82,8 @@ class FeaturebaseClientTestCase(unittest.TestCase):
         # bad CA attributes
         result = None
         exec = None
-        test_client = client(timeout=5, cafile="/nonexistingfile.pem")
         try:
+            test_client = client(timeout=5, cafile="/nonexistingfile.pem")
             result = test_client._post("This is test data, has no meaning when posted.")
         except Exception as ex:
             exec = ex
