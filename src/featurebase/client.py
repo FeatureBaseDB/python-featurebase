@@ -29,7 +29,7 @@ class client:
     # make connection to the sql endpoint
     def __init__(
         self,
-        hostport="localhost:10101",
+        hostport=None,
         database=None,
         apikey=None,
         cafile=None,
